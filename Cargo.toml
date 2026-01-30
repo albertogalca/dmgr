@@ -1,0 +1,19 @@
+[package]
+name = "dmgr"
+version = "0.1.0"
+edition = "2024"
+description = "macOS app distribution manager - archive, sign, notarize, and distribute"
+license = "MIT"
+
+[[bin]]
+name = "dmgr"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+owo-colors = "4"
+dirs = "6"
+which = "7"
+thiserror = "2"

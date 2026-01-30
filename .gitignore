@@ -1,0 +1,21 @@
+# Rust
+/target/
+
+# Claude
+.claude
+
+# macOS
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Build artifacts
+/build/
+*.dmg
+
+create-notarized-dmg.sh
+generate-update-files.sh
+plan.md
