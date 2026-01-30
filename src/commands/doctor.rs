@@ -13,7 +13,7 @@ pub fn run() -> Result<()> {
     output::step("Checking required tools");
     all_ok &= check_tool("xcodebuild", true);
     all_ok &= check_tool("codesign", true);
-    all_ok &= check_tool("create-dmg", true);
+    all_ok &= check_create_dmg();
     all_ok &= check_tool("xcrun", true);
     println!();
 
@@ -88,6 +88,30 @@ fn check_tool(name: &str, required: bool) -> bool {
         Err(_) => {
             output::tool_status(name, false, None);
             !required
+        }
+    }
+}
+
+/// Check create-dmg and verify it's the brew version (not npm)
+fn check_create_dmg() -> bool {
+    match which::which("create-dmg") {
+        Ok(path) => {
+            let path_str = path.to_string_lossy();
+            // npm version is typically in a node_modules or node install path
+            if path_str.contains("node") || path_str.contains("npm") {
+                output::tool_status("create-dmg", true, path.to_str());
+                output::warning("  Found npm version of create-dmg (incompatible)");
+                output::info("  Run: npm uninstall -g create-dmg && brew install create-dmg");
+                false
+            } else {
+                output::tool_status("create-dmg", true, path.to_str());
+                true
+            }
+        }
+        Err(_) => {
+            output::tool_status("create-dmg", false, None);
+            output::info("  Install with: brew install create-dmg");
+            false
         }
     }
 }
