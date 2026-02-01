@@ -33,6 +33,9 @@ pub struct Config {
 
     #[serde(default)]
     pub sparkle: SparkleConfig,
+
+    #[serde(default)]
+    pub distribution: DistributionConfig,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -90,6 +93,47 @@ pub struct SparkleConfig {
 
     /// Path to output appcast.xml
     pub appcast_output: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct DistributionConfig {
+    /// Path to changelog file
+    pub changelog: Option<String>,
+
+    /// GitHub release settings
+    #[serde(default)]
+    pub github: GitHubConfig,
+
+    /// S3 upload settings
+    #[serde(default)]
+    pub s3: S3Config,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct GitHubConfig {
+    /// Enable GitHub releases
+    pub enabled: Option<bool>,
+
+    /// Repository in owner/repo format
+    pub repo: Option<String>,
+
+    /// Tag prefix (e.g., "v" for v1.0.0)
+    pub tag_prefix: Option<String>,
+}
+
+#[derive(Debug, Default, Serialize, Deserialize)]
+pub struct S3Config {
+    /// Enable S3 uploads
+    pub enabled: Option<bool>,
+
+    /// S3 bucket name
+    pub bucket: Option<String>,
+
+    /// Key prefix within the bucket
+    pub prefix: Option<String>,
+
+    /// AWS region
+    pub region: Option<String>,
 }
 
 impl Config {
@@ -191,6 +235,36 @@ impl Config {
         }
         if other.sparkle.appcast_output.is_some() {
             self.sparkle.appcast_output = other.sparkle.appcast_output;
+        }
+
+        // Distribution
+        if other.distribution.changelog.is_some() {
+            self.distribution.changelog = other.distribution.changelog;
+        }
+
+        // Distribution - GitHub
+        if other.distribution.github.enabled.is_some() {
+            self.distribution.github.enabled = other.distribution.github.enabled;
+        }
+        if other.distribution.github.repo.is_some() {
+            self.distribution.github.repo = other.distribution.github.repo;
+        }
+        if other.distribution.github.tag_prefix.is_some() {
+            self.distribution.github.tag_prefix = other.distribution.github.tag_prefix;
+        }
+
+        // Distribution - S3
+        if other.distribution.s3.enabled.is_some() {
+            self.distribution.s3.enabled = other.distribution.s3.enabled;
+        }
+        if other.distribution.s3.bucket.is_some() {
+            self.distribution.s3.bucket = other.distribution.s3.bucket;
+        }
+        if other.distribution.s3.prefix.is_some() {
+            self.distribution.s3.prefix = other.distribution.s3.prefix;
+        }
+        if other.distribution.s3.region.is_some() {
+            self.distribution.s3.region = other.distribution.s3.region;
         }
 
         self

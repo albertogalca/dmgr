@@ -1,5 +1,26 @@
 use owo_colors::OwoColorize;
 
+const LOGO: &str = r#"
+     _
+  __| |_ __ ___   __ _ _ __
+ / _` | '_ ` _ \ / _` | '__|
+| (_| | | | | | | (_| | |
+ \__,_|_| |_| |_|\__, |_|
+                 |___/
+"#;
+
+/// Print the ASCII logo
+pub fn logo() {
+    println!("{}", LOGO.cyan().bold());
+}
+
+/// Print the menu header with description and URL
+pub fn menu_header() {
+    logo();
+    println!("{}", "macOS app distribution manager".dimmed());
+    println!("{}\n", "https://github.com/albertogalca/dmgr".blue());
+}
+
 /// Print a step indicator (blue arrow)
 pub fn step(message: &str) {
     println!("{} {}", "==>".blue().bold(), message.bold());

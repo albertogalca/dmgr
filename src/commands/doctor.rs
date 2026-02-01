@@ -23,6 +23,12 @@ pub fn run() -> Result<()> {
     check_tool("sign_update", false);
     println!();
 
+    // Check optional tools (Distribution)
+    output::step("Checking optional tools (Distribution)");
+    check_gh_cli();
+    check_aws_cli();
+    println!();
+
     // Check signing identities
     output::step("Checking signing identities");
     match get_signing_identities() {
@@ -135,4 +141,46 @@ fn get_signing_identities() -> Result<Vec<String>> {
     }
 
     Ok(identities)
+}
+
+/// Check GitHub CLI availability and auth status
+fn check_gh_cli() {
+    match which::which("gh") {
+        Ok(path) => {
+            output::tool_status("gh", true, path.to_str());
+            // Check if authenticated
+            match runner::run_capture("gh", &["auth", "status"]) {
+                Ok(_) => output::success("  authenticated"),
+                Err(_) => {
+                    output::warning("  not authenticated");
+                    output::info("  Run: gh auth login");
+                }
+            }
+        }
+        Err(_) => {
+            output::tool_status("gh", false, None);
+            output::info("  Install with: brew install gh");
+        }
+    }
+}
+
+/// Check AWS CLI availability and configuration
+fn check_aws_cli() {
+    match which::which("aws") {
+        Ok(path) => {
+            output::tool_status("aws", true, path.to_str());
+            // Check if configured
+            match runner::run_capture("aws", &["sts", "get-caller-identity"]) {
+                Ok(_) => output::success("  configured"),
+                Err(_) => {
+                    output::warning("  not configured");
+                    output::info("  Run: aws configure");
+                }
+            }
+        }
+        Err(_) => {
+            output::tool_status("aws", false, None);
+            output::info("  Install with: brew install awscli");
+        }
+    }
 }

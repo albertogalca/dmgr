@@ -7,6 +7,9 @@
 # macOS
 .DS_Store
 
+# dmgr config (use .dmgr.example.toml as template)
+.dmgr.toml
+
 # IDE
 .idea/
 .vscode/
