@@ -13,9 +13,9 @@ pub struct DistributeOptions {
     pub changelog_path: Option<PathBuf>,
     pub appcast_path: Option<PathBuf>,
     pub output_appcast_path: Option<PathBuf>,
-    pub github_enabled: bool,
+    pub github_enabled: Option<bool>,
     pub github_repo: Option<String>,
-    pub s3_enabled: bool,
+    pub s3_enabled: Option<bool>,
     pub s3_bucket: Option<String>,
     pub s3_prefix: Option<String>,
     pub download_url_override: Option<String>,
@@ -23,7 +23,6 @@ pub struct DistributeOptions {
     pub skip_changelog: bool,
 }
 
-/// App info extracted from the DMG
 struct AppInfo {
     name: String,
     version: String,
@@ -35,10 +34,8 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
     output::header("dmgr distribute");
     println!();
 
-    // Load config
     let config = Config::load()?;
 
-    // Validate DMG exists
     if !opts.dmg_path.exists() {
         return Err(DmgrError::DmgNotFound(
             opts.dmg_path.to_string_lossy().to_string(),
@@ -50,7 +47,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
     output::list_item("Size", &format!("{:.2} MB", dmg_size as f64 / 1_048_576.0));
     println!();
 
-    // Step 1: Extract app info from DMG
     output::step("Extracting app info from DMG");
     let app_info = if opts.dry_run {
         AppInfo {
@@ -70,7 +66,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
     }
     println!();
 
-    // Step 2: Parse changelog
     let changelog_entry = if opts.skip_changelog {
         output::info("Skipping changelog");
         None
@@ -101,7 +96,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
     };
     println!();
 
-    // Step 3: Load existing appcast if provided
     let mut existing_items: Vec<AppcastItem> = if let Some(ref path) = opts.appcast_path {
         output::step("Loading existing appcast");
         if path.exists() {
@@ -119,10 +113,12 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
         println!();
     }
 
-    // Determine targets
-    let github_enabled = opts.github_enabled
-        || config.distribution.github.enabled.unwrap_or(false);
-    let s3_enabled = opts.s3_enabled || config.distribution.s3.enabled.unwrap_or(false);
+    let github_enabled = opts
+        .github_enabled
+        .unwrap_or_else(|| config.distribution.github.enabled.unwrap_or(false));
+    let s3_enabled = opts
+        .s3_enabled
+        .unwrap_or_else(|| config.distribution.s3.enabled.unwrap_or(false));
 
     if !github_enabled && !s3_enabled && opts.download_url_override.is_none() {
         return Err(DmgrError::NoDistributionTarget);
@@ -131,7 +127,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
     let mut github_url: Option<String> = None;
     let mut s3_url: Option<String> = None;
 
-    // Step 4: Upload to GitHub
     if github_enabled {
         output::step("Uploading to GitHub");
 
@@ -157,7 +152,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
         println!();
     }
 
-    // Step 5: Upload to S3
     if s3_enabled {
         output::step("Uploading to S3");
 
@@ -187,7 +181,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
         println!();
     }
 
-    // Step 6: Determine final download URL
     let download_url = opts
         .download_url_override
         .or(github_url)
@@ -197,7 +190,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
     output::list_item("Download URL", &download_url);
     println!();
 
-    // Step 7: Sign DMG with EdDSA
     output::step("Signing DMG for Sparkle");
     let private_key_path = config.sparkle.private_key.as_ref().map(PathBuf::from);
     let ed_signature = if opts.dry_run {
@@ -218,7 +210,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
     };
     println!();
 
-    // Step 8: Create appcast item
     output::step("Generating appcast entry");
     let new_item = appcast::create_item(
         &app_info.name,
@@ -231,7 +222,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
         app_info.minimum_system_version,
     );
 
-    // Step 9: Merge into appcast
     appcast::merge_item(&mut existing_items, new_item).map_err(DmgrError::AppcastError)?;
     output::success(&format!(
         "Appcast now has {} items",
@@ -239,7 +229,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
     ));
     println!();
 
-    // Step 10: Write appcast.xml
     output::step("Writing appcast.xml");
     let output_appcast_path = opts
         .output_appcast_path
@@ -270,7 +259,6 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
     ));
     println!();
 
-    // Step 11: Upload appcast to S3 (if S3 is enabled)
     if s3_enabled {
         output::step("Uploading appcast to S3");
         let bucket = opts
@@ -292,24 +280,19 @@ pub fn run(opts: DistributeOptions) -> Result<()> {
         println!();
     }
 
-    output::success("Distribution complete!");
+    output::success("Distribution completed");
 
     Ok(())
 }
 
-/// Extract app info by mounting the DMG and reading Info.plist
 fn extract_app_info(dmg_path: &Path) -> Result<AppInfo> {
-    // Create a temporary mount point
     let mount_output =
         runner::run_capture("hdiutil", &["attach", "-nobrowse", "-readonly", "-plist", dmg_path.to_str().unwrap()])?;
 
-    // Parse the plist output to find mount point
     let mount_point = parse_mount_point(&mount_output).ok_or(DmgrError::DmgMountFailed)?;
 
-    // Find .app bundle
     let app_path = find_app_in_volume(&mount_point)?;
 
-    // Extract version info
     let info_plist = app_path.join("Contents/Info.plist");
     let plist_str = info_plist.to_string_lossy();
 
@@ -319,7 +302,6 @@ fn extract_app_info(dmg_path: &Path) -> Result<AppInfo> {
     )
     .map(|s| s.trim().to_string())
     .unwrap_or_else(|_| {
-        // Fallback to executable name
         app_path
             .file_stem()
             .and_then(|s| s.to_str())
@@ -360,10 +342,7 @@ fn extract_app_info(dmg_path: &Path) -> Result<AppInfo> {
     })
 }
 
-/// Parse hdiutil plist output to find mount point
 fn parse_mount_point(plist_output: &str) -> Option<String> {
-    // Look for mount-point in the output
-    // The plist output contains system-entities with mount-point
     for line in plist_output.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with("<string>/Volumes/") {
@@ -373,7 +352,6 @@ fn parse_mount_point(plist_output: &str) -> Option<String> {
         }
     }
 
-    // Fallback: try to find /Volumes path in any format
     for line in plist_output.lines() {
         if line.contains("/Volumes/") {
             if let Some(start) = line.find("/Volumes/") {
@@ -389,7 +367,6 @@ fn parse_mount_point(plist_output: &str) -> Option<String> {
     None
 }
 
-/// Find the .app bundle in a mounted volume
 fn find_app_in_volume(mount_point: &str) -> Result<PathBuf> {
     let entries = fs::read_dir(mount_point)?;
 

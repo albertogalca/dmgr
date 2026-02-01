@@ -33,7 +33,6 @@ pub enum DmgrError {
     #[error("No action specified. Use --list, --name/--team-id, or --create-keychain")]
     NoAction,
 
-    // Distribution errors
     #[error("DMG file not found: {0}")]
     DmgNotFound(String),
 

@@ -16,10 +16,8 @@ pub fn run(
     output::header(&format!("Building {}", scheme));
     println!();
 
-    // Load config
     let config = Config::load()?;
 
-    // Determine signing identity
     let identity = identity_override
         .or(config.signing.identity.clone())
         .or_else(|| get_first_identity().ok())
@@ -38,7 +36,6 @@ pub fn run(
     }
     println!();
 
-    // Setup paths
     let build_dir = PathBuf::from("build");
     let archive_path = build_dir.join(format!("{}.xcarchive", scheme));
     let export_path = build_dir.join("export");
@@ -46,46 +43,38 @@ pub fn run(
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("."));
 
-    // Step 1: Archive
     output::step("Creating Xcode archive");
     xcodebuild_archive(&scheme, &build_config, &archive_path, dry_run)?;
     println!();
 
-    // Step 2: Export
     output::step("Exporting archive");
     let export_plist = create_export_options_plist(&identity, &build_dir, dry_run)?;
     xcodebuild_export(&archive_path, &export_path, &export_plist, dry_run)?;
     println!();
 
-    // Find the exported app
     let app_path = export_path.join(format!("{}.app", scheme));
 
-    // Step 3: Verify/re-sign
     output::step("Code signing");
     codesign_app(&app_path, &identity, dry_run)?;
     verify_signature(&app_path, dry_run)?;
     println!();
 
-    // Step 4: Extract version for DMG naming
     let version = if dry_run {
         "1.0.0".to_string()
     } else {
         extract_version(&app_path)?
     };
 
-    // Step 5: Create DMG
     output::step("Creating DMG");
     let dmg_name = format!("{}-{}.dmg", scheme, version);
     let dmg_path = output_path.join(&dmg_name);
     create_dmg(&app_path, &dmg_path, &scheme, &config, dry_run)?;
     println!();
 
-    // Step 6: Sign DMG
     output::step("Signing DMG");
     codesign_dmg(&dmg_path, &identity, dry_run)?;
     println!();
 
-    // Step 7: Notarize (optional)
     if notarize {
         let profile = config
             .notarization
@@ -108,7 +97,6 @@ pub fn run(
 
     output::success(&format!("Created: {}", dmg_path.display()));
 
-    // Cleanup
     if !dry_run {
         output::info("Cleaning up build artifacts...");
         let _ = fs::remove_dir_all(&build_dir);
@@ -226,7 +214,7 @@ fn codesign_app(app_path: &Path, identity: &str, dry_run: bool) -> Result<()> {
     ];
 
     runner::run("codesign", &args, dry_run)?;
-    output::success("App signed successfully");
+    output::success("App signed");
     Ok(())
 }
 
@@ -264,6 +252,13 @@ fn create_dmg(
     config: &Config,
     dry_run: bool,
 ) -> Result<()> {
+    if dmg_path.exists() {
+        output::info(&format!("Removing existing DMG: {}", dmg_path.display()));
+        if !dry_run {
+            std::fs::remove_file(dmg_path)?;
+        }
+    }
+
     let app_str = app_path.to_string_lossy().to_string();
     let dmg_str = dmg_path.to_string_lossy().to_string();
 
@@ -307,7 +302,6 @@ fn create_dmg(
         args.push(&bg_owned);
     }
 
-    // Output DMG and source app
     args.push(&dmg_str);
     args.push(&app_str);
 
@@ -338,7 +332,7 @@ fn notarize_dmg(dmg_path: &Path, keychain_profile: &str, dry_run: bool) -> Resul
     ];
 
     runner::run("xcrun", &args, dry_run)?;
-    output::success("Notarization complete");
+    output::success("Notarization completed");
     Ok(())
 }
 
@@ -347,7 +341,7 @@ fn staple_dmg(dmg_path: &Path, dry_run: bool) -> Result<()> {
     let args = vec!["stapler", "staple", &dmg_str];
 
     runner::run("xcrun", &args, dry_run)?;
-    output::success("Ticket stapled");
+    output::success("Notarization ticket stapled");
     Ok(())
 }
 
@@ -364,6 +358,6 @@ fn verify_notarization(dmg_path: &Path, dry_run: bool) -> Result<()> {
     ];
 
     runner::run("spctl", &args, dry_run)?;
-    output::success("Notarization verified");
+    output::success("Gatekeeper approval verified");
     Ok(())
 }

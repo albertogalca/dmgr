@@ -7,7 +7,6 @@ use std::fs;
 use std::io::Cursor;
 use std::path::Path;
 
-/// Information about an app version for the appcast
 #[derive(Debug, Clone)]
 pub struct AppcastItem {
     pub title: String,
@@ -21,13 +20,11 @@ pub struct AppcastItem {
     pub minimum_system_version: Option<String>,
 }
 
-/// Parse an existing appcast.xml file
 pub fn parse_appcast(path: &Path) -> Result<Vec<AppcastItem>, String> {
     let content = fs::read_to_string(path).map_err(|e| format!("Failed to read appcast: {}", e))?;
     parse_appcast_content(&content)
 }
 
-/// Parse appcast XML content
 pub fn parse_appcast_content(content: &str) -> Result<Vec<AppcastItem>, String> {
     use quick_xml::Reader;
 
@@ -143,7 +140,6 @@ impl AppcastItemBuilder {
     }
 }
 
-/// Generate a complete appcast.xml
 pub fn generate_appcast(
     title: &str,
     description: &str,
@@ -152,12 +148,10 @@ pub fn generate_appcast(
 ) -> Result<String, String> {
     let mut writer = Writer::new_with_indent(Cursor::new(Vec::new()), b' ', 2);
 
-    // XML declaration
     writer
         .write_event(Event::Decl(BytesDecl::new("1.0", Some("utf-8"), None)))
         .map_err(|e| format!("XML write error: {}", e))?;
 
-    // RSS root
     let mut rss = BytesStart::new("rss");
     rss.push_attribute(("version", "2.0"));
     rss.push_attribute(("xmlns:sparkle", "http://www.andymatuschak.org/xml-namespaces/sparkle"));
@@ -166,23 +160,19 @@ pub fn generate_appcast(
         .write_event(Event::Start(rss))
         .map_err(|e| format!("XML write error: {}", e))?;
 
-    // Channel
     writer
         .write_event(Event::Start(BytesStart::new("channel")))
         .map_err(|e| format!("XML write error: {}", e))?;
 
-    // Channel metadata
     write_element(&mut writer, "title", title)?;
     write_element(&mut writer, "description", description)?;
     write_element(&mut writer, "link", link)?;
     write_element(&mut writer, "language", "en")?;
 
-    // Items
     for item in items {
         write_item(&mut writer, item)?;
     }
 
-    // Close channel and rss
     writer
         .write_event(Event::End(BytesEnd::new("channel")))
         .map_err(|e| format!("XML write error: {}", e))?;
@@ -219,7 +209,6 @@ fn write_item<W: std::io::Write>(writer: &mut Writer<W>, item: &AppcastItem) -> 
     write_element(writer, "title", &item.title)?;
     write_element(writer, "pubDate", &item.pub_date)?;
 
-    // Description with CDATA for HTML
     writer
         .write_event(Event::Start(BytesStart::new("description")))
         .map_err(|e| format!("XML write error: {}", e))?;
@@ -230,7 +219,6 @@ fn write_item<W: std::io::Write>(writer: &mut Writer<W>, item: &AppcastItem) -> 
         .write_event(Event::End(BytesEnd::new("description")))
         .map_err(|e| format!("XML write error: {}", e))?;
 
-    // Enclosure
     let mut enclosure = BytesStart::new("enclosure");
     enclosure.push_attribute(("url", item.download_url.as_str()));
     enclosure.push_attribute(("length", item.length.to_string().as_str()));
@@ -244,7 +232,6 @@ fn write_item<W: std::io::Write>(writer: &mut Writer<W>, item: &AppcastItem) -> 
         .write_event(Event::Empty(enclosure))
         .map_err(|e| format!("XML write error: {}", e))?;
 
-    // Minimum system version
     if let Some(ref min_ver) = item.minimum_system_version {
         write_element(writer, "sparkle:minimumSystemVersion", min_ver)?;
     }
@@ -256,8 +243,6 @@ fn write_item<W: std::io::Write>(writer: &mut Writer<W>, item: &AppcastItem) -> 
     Ok(())
 }
 
-/// Merge a new item into existing items (sorted by build number, newest first)
-/// Rejects duplicates by build number
 pub fn merge_item(existing: &mut Vec<AppcastItem>, new_item: AppcastItem) -> Result<(), String> {
     // Check for duplicate
     if existing.iter().any(|i| i.build == new_item.build) {
@@ -267,7 +252,6 @@ pub fn merge_item(existing: &mut Vec<AppcastItem>, new_item: AppcastItem) -> Res
         ));
     }
 
-    // Insert at correct position (sorted by build, newest first)
     let new_build: u64 = new_item.build.parse().unwrap_or(0);
     let pos = existing
         .iter()
@@ -281,7 +265,6 @@ pub fn merge_item(existing: &mut Vec<AppcastItem>, new_item: AppcastItem) -> Res
     Ok(())
 }
 
-/// Create an AppcastItem from app info and changelog
 pub fn create_item(
     app_name: &str,
     version: &str,
@@ -311,12 +294,10 @@ pub fn create_item(
     }
 }
 
-/// Format datetime as RFC 2822 (required for RSS pubDate)
 fn format_rfc2822(dt: DateTime<Utc>) -> String {
     dt.format("%a, %d %b %Y %H:%M:%S %z").to_string()
 }
 
-/// Sign a file using Sparkle's sign_update tool
 pub fn sign_dmg(dmg_path: &Path, private_key_path: Option<&Path>) -> Result<String, String> {
     let dmg_str = dmg_path.to_string_lossy();
 
@@ -330,11 +311,9 @@ pub fn sign_dmg(dmg_path: &Path, private_key_path: Option<&Path>) -> Result<Stri
     let output = runner::run_capture("sign_update", &args)
         .map_err(|e| format!("Failed to sign DMG: {}", e))?;
 
-    // sign_update outputs just the signature
     Ok(output.trim().to_string())
 }
 
-/// Write appcast to file
 pub fn write_appcast(path: &Path, content: &str) -> Result<(), String> {
     fs::write(path, content).map_err(|e| format!("Failed to write appcast: {}", e))
 }

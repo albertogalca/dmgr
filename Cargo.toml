@@ -1,7 +1,7 @@
 [package]
 name = "dmgr"
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "macOS app distribution manager - archive, sign, notarize, and distribute"
 license = "MIT"
 

@@ -2,7 +2,6 @@ use pulldown_cmark::{html, Parser};
 use std::fs;
 use std::path::Path;
 
-/// A single changelog entry for a version
 #[derive(Debug, Clone)]
 pub struct ChangelogEntry {
     pub version: String,
@@ -14,7 +13,6 @@ pub struct ChangelogEntry {
     pub content_html: String,
 }
 
-/// Parse a changelog file and extract all version entries
 pub fn parse_changelog(path: &Path) -> Result<Vec<ChangelogEntry>, String> {
     let content = fs::read_to_string(path)
         .map_err(|e| format!("Failed to read changelog: {}", e))?;
@@ -22,15 +20,12 @@ pub fn parse_changelog(path: &Path) -> Result<Vec<ChangelogEntry>, String> {
     parse_changelog_content(&content)
 }
 
-/// Parse changelog content string
 pub fn parse_changelog_content(content: &str) -> Result<Vec<ChangelogEntry>, String> {
     let mut entries = Vec::new();
     let mut current_entry: Option<(String, Option<String>, Option<String>, String)> = None;
 
     for line in content.lines() {
-        // Check for version headers
         if line.starts_with("## ") {
-            // Save previous entry if exists
             if let Some((version, build, date, md_content)) = current_entry.take() {
                 let html_content = markdown_to_html(&md_content);
                 entries.push(ChangelogEntry {
@@ -42,13 +37,11 @@ pub fn parse_changelog_content(content: &str) -> Result<Vec<ChangelogEntry>, Str
                 });
             }
 
-            // Parse the new header
             let header = &line[3..];
             if let Some(parsed) = parse_version_header(header) {
                 current_entry = Some((parsed.0, parsed.1, parsed.2, String::new()));
             }
         } else if current_entry.is_some() {
-            // Append content to current entry
             if let Some((_, _, _, ref mut content)) = current_entry {
                 content.push_str(line);
                 content.push('\n');
@@ -56,7 +49,6 @@ pub fn parse_changelog_content(content: &str) -> Result<Vec<ChangelogEntry>, Str
         }
     }
 
-    // Don't forget the last entry
     if let Some((version, build, date, md_content)) = current_entry {
         let html_content = markdown_to_html(&md_content);
         entries.push(ChangelogEntry {
@@ -71,15 +63,9 @@ pub fn parse_changelog_content(content: &str) -> Result<Vec<ChangelogEntry>, Str
     Ok(entries)
 }
 
-/// Parse a version header line, supporting multiple formats:
-/// - `VERSION (BUILD)` e.g., "1.2.3 (456)"
-/// - `[VERSION] - DATE` e.g., "[1.2.3] - 2024-01-15"
-/// - `VERSION - DATE` e.g., "1.2.3 - 2024-01-15"
-/// - `VERSION` e.g., "1.2.3"
 fn parse_version_header(header: &str) -> Option<(String, Option<String>, Option<String>)> {
     let header = header.trim();
 
-    // Format: VERSION (BUILD)
     if let Some(paren_start) = header.find('(') {
         if let Some(paren_end) = header.find(')') {
             let version = header[..paren_start].trim().to_string();
@@ -88,7 +74,6 @@ fn parse_version_header(header: &str) -> Option<(String, Option<String>, Option<
         }
     }
 
-    // Format: [VERSION] - DATE or [VERSION]
     if header.starts_with('[') {
         if let Some(bracket_end) = header.find(']') {
             let version = header[1..bracket_end].trim().to_string();
@@ -102,14 +87,12 @@ fn parse_version_header(header: &str) -> Option<(String, Option<String>, Option<
         }
     }
 
-    // Format: VERSION - DATE
     if let Some(dash_pos) = header.find(" - ") {
         let version = header[..dash_pos].trim().to_string();
         let date = header[dash_pos + 3..].trim().to_string();
         return Some((version, None, Some(date)));
     }
 
-    // Format: Just VERSION
     if !header.is_empty() {
         return Some((header.to_string(), None, None));
     }
@@ -117,7 +100,6 @@ fn parse_version_header(header: &str) -> Option<(String, Option<String>, Option<
     None
 }
 
-/// Find a changelog entry for a specific version
 pub fn find_entry_for_version<'a>(
     entries: &'a [ChangelogEntry],
     version: &str,
@@ -125,7 +107,6 @@ pub fn find_entry_for_version<'a>(
     entries.iter().find(|e| e.version == version)
 }
 
-/// Convert markdown content to HTML
 fn markdown_to_html(markdown: &str) -> String {
     let parser = Parser::new(markdown);
     let mut html_output = String::new();

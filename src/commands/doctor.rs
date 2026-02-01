@@ -9,7 +9,6 @@ pub fn run() -> Result<()> {
 
     let mut all_ok = true;
 
-    // Check required tools
     output::step("Checking required tools");
     all_ok &= check_tool("xcodebuild", true);
     all_ok &= check_tool("codesign", true);
@@ -17,19 +16,16 @@ pub fn run() -> Result<()> {
     all_ok &= check_tool("xcrun", true);
     println!();
 
-    // Check optional tools (Sparkle)
     output::step("Checking optional tools (Sparkle)");
     check_tool("generate_appcast", false);
     check_tool("sign_update", false);
     println!();
 
-    // Check optional tools (Distribution)
     output::step("Checking optional tools (Distribution)");
     check_gh_cli();
     check_aws_cli();
     println!();
 
-    // Check signing identities
     output::step("Checking signing identities");
     match get_signing_identities() {
         Ok(identities) => {
@@ -49,7 +45,6 @@ pub fn run() -> Result<()> {
     }
     println!();
 
-    // Check configuration
     output::step("Checking configuration");
     match Config::load() {
         Ok(config) => {
@@ -65,9 +60,23 @@ pub fn run() -> Result<()> {
 
             if let Some(profile) = &config.notarization.keychain_profile {
                 output::list_item("Notarization profile", profile);
+                if verify_keychain_profile(profile) {
+                    output::success(&format!("  Profile '{}' is valid", profile));
+                } else {
+                    output::warning(&format!("  Profile '{}' may be invalid", profile));
+                }
             } else {
                 output::info("No notarization profile configured");
-                output::info("Run: dmgr profile --create-keychain <name>");
+                let profiles = find_keychain_profiles();
+                if !profiles.is_empty() {
+                    output::info("Found existing keychain profiles:");
+                    for p in &profiles {
+                        output::info(&format!("  - {}", p));
+                    }
+                    output::info("Configure with: dmgr profile --create-keychain <name>");
+                } else {
+                    output::info("Run: dmgr profile --create-keychain <name>");
+                }
             }
         }
         Err(e) => {
@@ -98,12 +107,10 @@ fn check_tool(name: &str, required: bool) -> bool {
     }
 }
 
-/// Check create-dmg and verify it's the brew version (not npm)
 fn check_create_dmg() -> bool {
     match which::which("create-dmg") {
         Ok(path) => {
             let path_str = path.to_string_lossy();
-            // npm version is typically in a node_modules or node install path
             if path_str.contains("node") || path_str.contains("npm") {
                 output::tool_status("create-dmg", true, path.to_str());
                 output::warning("  Found npm version of create-dmg (incompatible)");
@@ -122,13 +129,11 @@ fn check_create_dmg() -> bool {
     }
 }
 
-/// Query keychain for Developer ID signing identities
 fn get_signing_identities() -> Result<Vec<String>> {
     let output = runner::run_capture("security", &["find-identity", "-v", "-p", "codesigning"])?;
 
     let mut identities = Vec::new();
     for line in output.lines() {
-        // Lines look like: 1) HASH "Developer ID Application: Name (TEAM_ID)"
         if line.contains("Developer ID Application:") {
             if let Some(start) = line.find('"') {
                 if let Some(end) = line.rfind('"') {
@@ -143,12 +148,10 @@ fn get_signing_identities() -> Result<Vec<String>> {
     Ok(identities)
 }
 
-/// Check GitHub CLI availability and auth status
 fn check_gh_cli() {
     match which::which("gh") {
         Ok(path) => {
             output::tool_status("gh", true, path.to_str());
-            // Check if authenticated
             match runner::run_capture("gh", &["auth", "status"]) {
                 Ok(_) => output::success("  authenticated"),
                 Err(_) => {
@@ -164,12 +167,10 @@ fn check_gh_cli() {
     }
 }
 
-/// Check AWS CLI availability and configuration
 fn check_aws_cli() {
     match which::which("aws") {
         Ok(path) => {
             output::tool_status("aws", true, path.to_str());
-            // Check if configured
             match runner::run_capture("aws", &["sts", "get-caller-identity"]) {
                 Ok(_) => output::success("  configured"),
                 Err(_) => {
@@ -183,4 +184,84 @@ fn check_aws_cli() {
             output::info("  Install with: brew install awscli");
         }
     }
+}
+
+fn verify_keychain_profile(profile: &str) -> bool {
+    let result = std::process::Command::new("xcrun")
+        .args([
+            "notarytool",
+            "info",
+            "--keychain-profile",
+            profile,
+            "00000000-0000-0000-0000-000000000000",
+        ])
+        .output();
+
+    match result {
+        Ok(output) => {
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            combined.contains("Submission does not exist")
+                || combined.contains("does not belong to your team")
+                || (!combined.contains("credentials")
+                    && !combined.contains("No credentials")
+                    && !combined.contains("Could not find credentials"))
+        }
+        Err(_) => false,
+    }
+}
+
+fn find_keychain_profiles() -> Vec<String> {
+    let result = std::process::Command::new("security")
+        .args(["dump-keychain"])
+        .output();
+
+    let Ok(output) = result else {
+        return Vec::new();
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut profiles = Vec::new();
+    let mut current_service: Option<String> = None;
+    let mut is_notarytool = false;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("\"svce\"") || trimmed.starts_with("0x00000007") {
+            if let Some(start) = trimmed.find("=\"") {
+                if let Some(end) = trimmed.rfind('"') {
+                    let service = &trimmed[start + 2..end];
+                    current_service = Some(service.to_string());
+                }
+            }
+        }
+
+        if trimmed.contains("notarytool") || trimmed.contains("notary") {
+            is_notarytool = true;
+        }
+
+        if trimmed.contains("@") && trimmed.contains("apple") {
+            is_notarytool = true;
+        }
+
+        if trimmed.starts_with("keychain:") || trimmed.is_empty() {
+            if is_notarytool {
+                if let Some(ref svc) = current_service {
+                    if !svc.is_empty() && !profiles.contains(svc) {
+                        if verify_keychain_profile(svc) {
+                            profiles.push(svc.clone());
+                        }
+                    }
+                }
+            }
+            current_service = None;
+            is_notarytool = false;
+        }
+    }
+
+    profiles
 }

@@ -10,17 +10,14 @@ pub fn run(
     team_id: Option<String>,
     create_keychain: Option<String>,
 ) -> Result<()> {
-    // List signing identities
     if list {
         return list_identities();
     }
 
-    // Create keychain profile for notarization
     if let Some(profile_name) = create_keychain {
         return create_keychain_profile(&profile_name);
     }
 
-    // Save configuration
     if name.is_some() || team_id.is_some() {
         return save_config(name, team_id);
     }
@@ -78,28 +75,64 @@ fn save_config(name: Option<String>, team_id: Option<String>) -> Result<()> {
     Ok(())
 }
 
+fn profile_exists(profile_name: &str) -> bool {
+    let result = std::process::Command::new("xcrun")
+        .args([
+            "notarytool",
+            "info",
+            "--keychain-profile",
+            profile_name,
+            "00000000-0000-0000-0000-000000000000",
+        ])
+        .output();
+
+    match result {
+        Ok(output) => {
+            let combined = format!(
+                "{}{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            combined.contains("Submission does not exist")
+                || combined.contains("does not belong to your team")
+        }
+        Err(_) => false,
+    }
+}
+
 fn create_keychain_profile(profile_name: &str) -> Result<()> {
+    if profile_exists(profile_name) {
+        output::success(&format!(
+            "Keychain profile '{}' already exists",
+            profile_name
+        ));
+
+        let mut config = Config::load_global().unwrap_or_default();
+        config.notarization.keychain_profile = Some(profile_name.to_string());
+        config.save_global()?;
+
+        output::success("Profile name saved to config");
+        return Ok(());
+    }
+
     output::step(&format!(
         "Creating notarization keychain profile: {}",
         profile_name
     ));
     println!();
 
-    // Prompt for Apple ID
     print!("Apple ID: ");
     io::stdout().flush()?;
     let mut apple_id = String::new();
     io::stdin().read_line(&mut apple_id)?;
     let apple_id = apple_id.trim();
 
-    // Prompt for app-specific password
     print!("App-specific password: ");
     io::stdout().flush()?;
     let mut password = String::new();
     io::stdin().read_line(&mut password)?;
     let password = password.trim();
 
-    // Prompt for team ID
     print!("Team ID: ");
     io::stdout().flush()?;
     let mut team_id = String::new();
@@ -109,7 +142,6 @@ fn create_keychain_profile(profile_name: &str) -> Result<()> {
     println!();
     output::step("Running xcrun notarytool store-credentials");
 
-    // Run notarytool store-credentials
     let args = vec![
         "notarytool",
         "store-credentials",
@@ -126,7 +158,6 @@ fn create_keychain_profile(profile_name: &str) -> Result<()> {
 
     output::success(&format!("Keychain profile '{}' created", profile_name));
 
-    // Save profile name to config
     let mut config = Config::load_global().unwrap_or_default();
     config.notarization.keychain_profile = Some(profile_name.to_string());
     config.signing.team_id = Some(team_id.to_string());

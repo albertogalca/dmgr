@@ -9,7 +9,7 @@ mod runner;
 mod targets;
 
 use clap::{Parser, Subcommand};
-use commands::{archive, distribute, doctor, profile};
+use commands::{archive, distribute, doctor, profile, release};
 use error::Result;
 use std::path::PathBuf;
 
@@ -18,37 +18,88 @@ use std::path::PathBuf;
 #[command(about = "macOS app distribution manager - archive, sign, notarize, and distribute")]
 #[command(version)]
 struct Cli {
+    #[arg(long, short, global = true)]
+    quiet: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Check system for required tools and configuration
     Doctor,
-
-    /// Manage signing identity and notarization profiles
     Profile {
-        /// List available signing identities
         #[arg(long)]
         list: bool,
 
-        /// Set signing identity name (e.g., "Developer ID Application: Name (TEAM_ID)")
         #[arg(long)]
         name: Option<String>,
 
-        /// Set team ID
         #[arg(long)]
         team_id: Option<String>,
 
-        /// Create a notarization keychain profile
         #[arg(long, value_name = "PROFILE_NAME")]
         create_keychain: Option<String>,
     },
 
-    /// Build, sign, and package app for distribution
     Archive {
-        /// Xcode scheme to build
+        #[arg(long)]
+        scheme: String,
+
+        #[arg(long, default_value = "Release")]
+        config: String,
+
+        #[arg(long, short)]
+        output: Option<String>,
+
+        #[arg(long)]
+        identity: Option<String>,
+
+        #[arg(long)]
+        notarize: bool,
+
+        #[arg(long)]
+        dry_run: bool,
+    },
+
+    Distribute {
+        dmg_path: PathBuf,
+
+        #[arg(long, value_name = "PATH")]
+        changelog: Option<PathBuf>,
+
+        #[arg(long, value_name = "PATH")]
+        appcast: Option<PathBuf>,
+
+        #[arg(long, value_name = "PATH")]
+        output_appcast: Option<PathBuf>,
+
+        #[arg(long)]
+        github: bool,
+
+        #[arg(long, value_name = "OWNER/REPO")]
+        github_repo: Option<String>,
+
+        #[arg(long)]
+        s3: bool,
+
+        #[arg(long, value_name = "BUCKET")]
+        s3_bucket: Option<String>,
+
+        #[arg(long, value_name = "PREFIX")]
+        s3_prefix: Option<String>,
+
+        #[arg(long, value_name = "URL")]
+        download_url: Option<String>,
+
+        #[arg(long)]
+        dry_run: bool,
+
+        #[arg(long)]
+        skip_changelog: bool,
+    },
+
+    Release {
         #[arg(long)]
         scheme: String,
 
@@ -63,32 +114,6 @@ enum Commands {
         /// Signing identity (overrides config)
         #[arg(long)]
         identity: Option<String>,
-
-        /// Notarize the DMG after creation
-        #[arg(long)]
-        notarize: bool,
-
-        /// Show commands without executing
-        #[arg(long)]
-        dry_run: bool,
-    },
-
-    /// Distribute a DMG to GitHub releases, S3, and generate appcast
-    Distribute {
-        /// Path to the DMG file
-        dmg_path: PathBuf,
-
-        /// Path to changelog file
-        #[arg(long, value_name = "PATH")]
-        changelog: Option<PathBuf>,
-
-        /// Path to existing appcast.xml to merge with
-        #[arg(long, value_name = "PATH")]
-        appcast: Option<PathBuf>,
-
-        /// Output path for appcast.xml
-        #[arg(long, value_name = "PATH")]
-        output_appcast: Option<PathBuf>,
 
         /// Enable GitHub release
         #[arg(long)]
@@ -110,22 +135,25 @@ enum Commands {
         #[arg(long, value_name = "PREFIX")]
         s3_prefix: Option<String>,
 
-        /// Override download URL in appcast
-        #[arg(long, value_name = "URL")]
-        download_url: Option<String>,
-
-        /// Show commands without executing
-        #[arg(long)]
-        dry_run: bool,
+        /// Path to changelog file
+        #[arg(long, value_name = "PATH")]
+        changelog: Option<PathBuf>,
 
         /// Skip changelog requirement
         #[arg(long)]
         skip_changelog: bool,
+
+        /// Show commands without executing
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 
 fn main() {
     let cli = Cli::parse();
+
+    // Set quiet mode before running any commands
+    output::set_quiet(cli.quiet);
 
     let result: Result<()> = match cli.command {
         None => menu::show(),
@@ -162,14 +190,42 @@ fn main() {
             changelog_path: changelog,
             appcast_path: appcast,
             output_appcast_path: output_appcast,
-            github_enabled: github,
+            // CLI: if flag passed, use it; otherwise fall back to config
+            github_enabled: if github { Some(true) } else { None },
             github_repo,
-            s3_enabled: s3,
+            s3_enabled: if s3 { Some(true) } else { None },
             s3_bucket,
             s3_prefix,
             download_url_override: download_url,
             dry_run,
             skip_changelog,
+        }),
+        Some(Commands::Release {
+            scheme,
+            config,
+            output,
+            identity,
+            github,
+            github_repo,
+            s3,
+            s3_bucket,
+            s3_prefix,
+            changelog,
+            skip_changelog,
+            dry_run,
+        }) => release::run(release::ReleaseOptions {
+            scheme,
+            config,
+            output_dir: output,
+            identity,
+            github_enabled: if github { Some(true) } else { None },
+            github_repo,
+            s3_enabled: if s3 { Some(true) } else { None },
+            s3_bucket,
+            s3_prefix,
+            changelog_path: changelog,
+            skip_changelog,
+            dry_run,
         }),
     };
 

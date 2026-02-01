@@ -159,28 +159,49 @@ impl ProfileAction {
 pub fn show() -> Result<()> {
     output::menu_header();
 
-    let items: Vec<String> = MainCommand::all()
-        .iter()
-        .enumerate()
-        .map(|(i, cmd)| format!("{}. {}  - {}", i + 1, cmd.label(), cmd.description()))
-        .collect();
+    loop {
+        let items: Vec<String> = MainCommand::all()
+            .iter()
+            .enumerate()
+            .map(|(i, cmd)| format!("{}. {}  - {}", i + 1, cmd.label(), cmd.description()))
+            .collect();
 
-    let selection = Select::new()
-        .items(&items)
-        .default(0)
-        .with_prompt("Select command")
-        .interact_opt()?;
+        let selection = Select::new()
+            .items(&items)
+            .default(0)
+            .with_prompt("Select command")
+            .interact_opt()?;
 
-    match selection {
-        Some(idx) => {
-            let cmd = MainCommand::all()[idx];
-            execute_command(cmd)
-        }
-        None => {
-            // User pressed Escape or Ctrl+C
-            Ok(())
+        match selection {
+            Some(idx) => {
+                let cmd = MainCommand::all()[idx];
+                if let Err(e) = execute_command(cmd) {
+                    output::error(&e.to_string());
+                }
+                println!();
+
+                // Ask if user wants to run another command
+                let run_another = Confirm::new()
+                    .with_prompt("Run another command?")
+                    .default(false)
+                    .interact_opt()?;
+
+                match run_another {
+                    Some(true) => {
+                        println!();
+                        continue;
+                    }
+                    _ => break,
+                }
+            }
+            None => {
+                // User pressed Escape or Ctrl+C
+                break;
+            }
         }
     }
+
+    Ok(())
 }
 
 fn execute_command(cmd: MainCommand) -> Result<()> {
@@ -229,6 +250,9 @@ fn run_profile_menu() -> Result<()> {
 }
 
 fn run_archive_prompts() -> Result<()> {
+    // Load config first to check what's already configured
+    let dmgr_config = Config::load().unwrap_or_default();
+
     let xcode_info = get_xcode_info();
 
     let scheme: String = if let Some((ref schemes, _)) = xcode_info {
@@ -273,40 +297,48 @@ fn run_archive_prompts() -> Result<()> {
         Some(output_dir)
     };
 
-    let identities = get_signing_identities();
-    let identity = if identities.is_empty() {
-        let identity_str: String = Input::new()
-            .with_prompt("Signing identity (optional)")
-            .allow_empty(true)
-            .interact_text()?;
-        if identity_str.is_empty() {
-            None
-        } else {
-            Some(identity_str)
-        }
+    // Skip signing identity prompt if already configured
+    let identity = if dmgr_config.signing.identity.is_some() {
+        output::info(&format!(
+            "Using signing identity from config: {}",
+            dmgr_config.signing.identity.as_ref().unwrap()
+        ));
+        None // None means use config default
     } else {
-        let mut items: Vec<String> = vec!["(use config default)".to_string()];
-        items.extend(identities.clone());
-
-        let idx = Select::new()
-            .items(&items)
-            .default(0)
-            .with_prompt("Signing identity")
-            .interact()?;
-
-        if idx == 0 {
-            None
+        let identities = get_signing_identities();
+        if identities.is_empty() {
+            let identity_str: String = Input::new()
+                .with_prompt("Signing identity")
+                .allow_empty(true)
+                .interact_text()?;
+            if identity_str.is_empty() {
+                None
+            } else {
+                Some(identity_str)
+            }
         } else {
-            Some(identities[idx - 1].clone())
+            // Find first Developer ID identity as default
+            let default_idx = identities
+                .iter()
+                .position(|id| id.contains("Developer ID"))
+                .unwrap_or(0);
+
+            let idx = Select::new()
+                .items(&identities)
+                .default(default_idx)
+                .with_prompt("Signing identity")
+                .interact()?;
+
+            Some(identities[idx].clone())
         }
     };
 
-    let dmgr_config = Config::load().unwrap_or_default();
     let has_notarization_profile = dmgr_config.notarization.keychain_profile.is_some();
 
     let notarize = if has_notarization_profile {
+        let profile_name = dmgr_config.notarization.keychain_profile.as_ref().unwrap();
         Confirm::new()
-            .with_prompt("Notarize after creation?")
+            .with_prompt(format!("Notarize after creation? (profile: {})", profile_name))
             .default(true)
             .interact()?
     } else {
@@ -346,13 +378,23 @@ fn run_archive_prompts() -> Result<()> {
 }
 
 fn run_distribute_prompts() -> Result<()> {
+    // Load config to pre-fill values
+    let dmgr_config = Config::load().unwrap_or_default();
+
     let dmg_path_str: String = Input::new()
         .with_prompt("Path to DMG file")
         .interact_text()?;
     let dmg_path = PathBuf::from(dmg_path_str);
 
+    // Pre-fill changelog from config
+    let default_changelog = dmgr_config
+        .distribution
+        .changelog
+        .as_deref()
+        .unwrap_or("");
     let changelog_str: String = Input::new()
         .with_prompt("Changelog file path (optional)")
+        .default(default_changelog.to_string())
         .allow_empty(true)
         .interact_text()?;
     let changelog = if changelog_str.is_empty() {
@@ -363,6 +405,7 @@ fn run_distribute_prompts() -> Result<()> {
 
     let appcast_str: String = Input::new()
         .with_prompt("Existing appcast.xml path (optional)")
+        .default(String::new())
         .allow_empty(true)
         .interact_text()?;
     let appcast = if appcast_str.is_empty() {
@@ -371,8 +414,15 @@ fn run_distribute_prompts() -> Result<()> {
         Some(PathBuf::from(appcast_str))
     };
 
+    // Pre-fill output appcast from config
+    let default_appcast_output = dmgr_config
+        .sparkle
+        .appcast_output
+        .as_deref()
+        .unwrap_or("");
     let output_appcast_str: String = Input::new()
         .with_prompt("Output appcast.xml path (optional)")
+        .default(default_appcast_output.to_string())
         .allow_empty(true)
         .interact_text()?;
     let output_appcast = if output_appcast_str.is_empty() {
@@ -381,43 +431,89 @@ fn run_distribute_prompts() -> Result<()> {
         Some(PathBuf::from(output_appcast_str))
     };
 
-    let github = Confirm::new()
-        .with_prompt("Upload to GitHub release?")
-        .default(false)
-        .interact()?;
+    // Pre-fill GitHub settings from config
+    let config_github_enabled = dmgr_config.distribution.github.enabled.unwrap_or(false);
+    let config_github_repo = dmgr_config.distribution.github.repo.as_deref();
+
+    let github = if config_github_repo.is_some() {
+        Confirm::new()
+            .with_prompt(format!(
+                "Upload to GitHub release? (repo: {})",
+                config_github_repo.unwrap()
+            ))
+            .default(config_github_enabled)
+            .interact()?
+    } else {
+        Confirm::new()
+            .with_prompt("Upload to GitHub release?")
+            .default(false)
+            .interact()?
+    };
 
     let github_repo = if github {
-        let repo: String = Input::new()
-            .with_prompt("GitHub repository (owner/repo)")
-            .interact_text()?;
-        Some(repo)
+        if let Some(repo) = config_github_repo {
+            output::info(&format!("Using GitHub repo from config: {}", repo));
+            None // None means use config default
+        } else {
+            let repo: String = Input::new()
+                .with_prompt("GitHub repository (owner/repo)")
+                .interact_text()?;
+            Some(repo)
+        }
     } else {
         None
     };
 
-    let s3 = Confirm::new()
-        .with_prompt("Upload to S3?")
-        .default(false)
-        .interact()?;
+    // Pre-fill S3 settings from config
+    let config_s3_enabled = dmgr_config.distribution.s3.enabled.unwrap_or(false);
+    let config_s3_bucket = dmgr_config.distribution.s3.bucket.as_deref();
+    let config_s3_prefix = dmgr_config.distribution.s3.prefix.as_deref();
+
+    let s3 = if config_s3_bucket.is_some() {
+        Confirm::new()
+            .with_prompt(format!(
+                "Upload to S3? (bucket: {})",
+                config_s3_bucket.unwrap()
+            ))
+            .default(config_s3_enabled)
+            .interact()?
+    } else {
+        Confirm::new()
+            .with_prompt("Upload to S3?")
+            .default(false)
+            .interact()?
+    };
 
     let (s3_bucket, s3_prefix) = if s3 {
-        let bucket: String = Input::new()
-            .with_prompt("S3 bucket name")
-            .interact_text()?;
-        let prefix: String = Input::new()
-            .with_prompt("S3 key prefix (optional)")
-            .allow_empty(true)
-            .interact_text()?;
-        (
-            Some(bucket),
-            if prefix.is_empty() { None } else { Some(prefix) },
-        )
+        if config_s3_bucket.is_some() {
+            output::info(&format!(
+                "Using S3 bucket from config: {}",
+                config_s3_bucket.unwrap()
+            ));
+            if let Some(prefix) = config_s3_prefix {
+                output::info(&format!("Using S3 prefix from config: {}", prefix));
+            }
+            (None, None) // None means use config defaults
+        } else {
+            let bucket: String = Input::new()
+                .with_prompt("S3 bucket name")
+                .interact_text()?;
+            let prefix: String = Input::new()
+                .with_prompt("S3 key prefix (optional)")
+                .allow_empty(true)
+                .interact_text()?;
+            (
+                Some(bucket),
+                if prefix.is_empty() { None } else { Some(prefix) },
+            )
+        }
     } else {
         (None, None)
     };
 
     let download_url_str: String = Input::new()
         .with_prompt("Override download URL (optional)")
+        .default(String::new())
         .allow_empty(true)
         .interact_text()?;
     let download_url = if download_url_str.is_empty() {
@@ -445,9 +541,9 @@ fn run_distribute_prompts() -> Result<()> {
         changelog_path: changelog,
         appcast_path: appcast,
         output_appcast_path: output_appcast,
-        github_enabled: github,
+        github_enabled: Some(github), // Explicit user choice
         github_repo,
-        s3_enabled: s3,
+        s3_enabled: Some(s3), // Explicit user choice
         s3_bucket,
         s3_prefix,
         download_url_override: download_url,

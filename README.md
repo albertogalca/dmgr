@@ -7,7 +7,6 @@ macOS app distribution manager — archive, sign, notarize, and distribute.
 ### Homebrew
 
 ```bash
-brew tap albertogalca/dmgr
 brew install dmgr
 ```
 
@@ -61,7 +60,11 @@ https://github.com/albertogalca/dmgr
   4. Distribute  - Upload DMG and generate appcast
 ```
 
-Use arrow keys to navigate, Enter to select, Ctrl+C to quit.
+Use arrow keys to navigate, Enter to select, Ctrl+C to quit. After completing a command, you'll be prompted to run another command without restarting.
+
+### Global Options
+
+- `-q, --quiet` — Suppress logo, colors, and use minimal output (ideal for CI/CD pipelines)
 
 ## Commands
 
@@ -162,6 +165,42 @@ Options:
 - `--skip-changelog` — Skip changelog requirement
 - `--dry-run` — Show commands without executing
 
+### `dmgr release`
+
+Build, sign, notarize, and distribute in one command. Combines `archive` and `distribute` for a streamlined release workflow.
+
+```bash
+# Release to GitHub
+dmgr release --scheme MyApp --github
+
+# Release to S3
+dmgr release --scheme MyApp --s3 --s3-bucket my-bucket
+
+# Release to both targets
+dmgr release --scheme MyApp --github --s3 --s3-bucket my-bucket
+
+# With custom output directory
+dmgr release --scheme MyApp --github -o ./dist
+
+# Dry run
+dmgr release --scheme MyApp --github --dry-run
+```
+
+Options:
+
+- `--scheme <SCHEME>` — Xcode scheme to build (required)
+- `--config <CONFIG>` — Build configuration, default: `Release`
+- `-o, --output <DIR>` — Output directory for DMG, default: current directory
+- `--identity <IDENTITY>` — Signing identity (overrides config)
+- `--github` — Enable GitHub release
+- `--github-repo <OWNER/REPO>` — GitHub repository (uses config if not specified)
+- `--s3` — Enable S3 upload
+- `--s3-bucket <BUCKET>` — S3 bucket name (uses config if not specified)
+- `--s3-prefix <PREFIX>` — S3 key prefix
+- `--changelog <PATH>` — Path to changelog file
+- `--skip-changelog` — Skip changelog requirement
+- `--dry-run` — Show commands without executing
+
 ## Configuration
 
 Configuration files use TOML format. Project config (`.dmgr.toml`) overrides global config (`~/.config/dmgr/config.toml`).
@@ -220,32 +259,47 @@ region = "us-east-1"
    aws configure                            # Configure AWS CLI (optional)
    ```
 
-2. **Build & notarize**:
+2. **Release** (single command):
 
    ```bash
-   dmgr archive --scheme MyApp --notarize
+   dmgr release --scheme MyApp --github
    ```
 
    This will:
    - Create Xcode archive
    - Export signed .app bundle
    - Create DMG with Applications symlink
-   - Sign the DMG
-   - Notarize with Apple
+   - Sign and notarize the DMG
    - Staple the notarization ticket
-
-3. **Distribute**:
-
-   ```bash
-   dmgr distribute ./MyApp-1.0.0.dmg --github --github-repo owner/repo
-   ```
-
-   This will:
    - Extract app version from DMG
    - Parse changelog for release notes
    - Create GitHub release and upload DMG
    - Sign DMG with EdDSA for Sparkle
    - Generate/update appcast.xml
+
+   **Or use separate commands for more control:**
+
+3. **Build & notarize** (step 1):
+
+   ```bash
+   dmgr archive --scheme MyApp --notarize
+   ```
+
+4. **Distribute** (step 2):
+
+   ```bash
+   dmgr distribute ./MyApp-1.0.0.dmg --github --github-repo owner/repo
+   ```
+
+### CI/CD Usage
+
+Use the `--quiet` flag for cleaner CI output:
+
+```bash
+dmgr --quiet release --scheme MyApp --github
+```
+
+This suppresses the logo and colors, using plain text output suitable for build logs.
 
 ## Changelog Format
 
