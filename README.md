@@ -338,6 +338,49 @@ The distribute command parses your changelog to extract release notes. Supported
 - Initial release
 ```
 
+## Contributing
+
+Contributions are welcome! Here's how to get started:
+
+1. **Fork** the repository
+2. **Clone** your fork:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/dmgr.git
+   cd dmgr
+   ```
+3. **Create a branch** for your changes:
+   ```bash
+   git checkout -b feature/my-feature
+   ```
+4. **Build and test** locally:
+   ```bash
+   cargo build
+   cargo test
+   ./target/debug/dmgr doctor
+   ```
+5. **Commit** your changes and **push** to your fork
+6. **Open a Pull Request** against `main`
+
+### Development
+
+```bash
+# Build debug version
+cargo build
+
+# Build release version
+cargo build --release
+
+# Run tests
+cargo test
+
+# Run with verbose output
+RUST_LOG=debug cargo run -- doctor
+```
+
+### Reporting Issues
+
+Found a bug or have a feature request? [Open an issue](https://github.com/albertogalca/dmgr/issues).
+
 ## License
 
 MIT
